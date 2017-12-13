@@ -43,17 +43,41 @@ Although the traditional approaches to distributed objects are well defined and 
 
 PyDO aims to take advantages from both implicit and explicit approaches and build a system that's both performant and easy-to-use. In order to attain that goal, we combine remote invocation with DSM's dynamic placement of objects.
 
-# 4. Design
+# 4. System Design
 
 ```{r echo=F, message=F, warning=F, fig.align='center'}
-node = rasterGrob(as.raster(readPNG(paste0(ROOT_DIR, "Node.png")))) + ggtitle("s")
+node = rasterGrob(as.raster(readPNG(paste0(ROOT_DIR, "Node.png"))))
 network = rasterGrob(as.raster(readPNG(paste0(ROOT_DIR, "pydo-network.png"))))
-grid.arrange(node, network, ncol=2, heights=c(1.5, 2))
+grid.arrange(node, network, ncol=2, heights=c(1.5, 2), top="Fig 1: A single node (left) and remote access in network (right)")
 ```
 
+Fig 1 shows the structure of a single node in the network and how they communicate by calling methods on remote objects. As shown, there are a few important components in a single node that facilitates distributed objects. They are discussed briefly below:
 
+**Central Server**
 
-## System
+The central server is a registry for the nodes in the network. It stores their location and metadata about the nodes.
+
+**Object Registration Daemon**
+
+Object registration daemon is at the lowest level in a node. This daemon is responsible for taking requests for newly instantiated objects. When a user creates a new object from a class that is derived from PyDO's `SharedObject` class, `SharedObject` class registers this user-defined class to this daemon but before that it has to go through the layer above it, which consists of Scheduler, Replication and metadata Sync with central server.
+
+**Scheduler**
+
+This component is responsible for object placement, which right now chooses one node from the network using round-robin method. Each separate node gets the information about the nodes in the network from the central server and caches it. This information is then periodically updates allowing updates in network to be propogated to each node. The scheduling decision is made locally on each node which makes object distribution faster, since central server is not contacted for each newly created object.
+
+Moreover, this design also allows the system to continue function in the absence of central server. Due to this, when the central server is down, it's not fatal since object scheduling continues with its cache of existing nodes.
+
+**Replication**
+
+This component is responsible for replicating the objects to multiple other nodes, which allows objects to be found in the network if the primary host of the object fails. This feature combined with decentralized nodes make our system fault-tolerant.
+
+**Metadata Sync**
+
+This component is responsible for periodically fetching information about nodes from the network. This includes newly added or removed nodes as well as the resource allocation on them.
+
+**Communication Mechanism**
+
+As mentioned above, for communication mechanism we use remote invocation which allows direct access to the object and methods can be invoked on the address without having to make many requests (in most cases just one request). 
 
 # 5. Implementation
 
@@ -73,13 +97,11 @@ class Counter(SharedObject):
     self.count += 1
 ```
 
-## Challenges
-
 # 6. Evaluation
 
 As mentioned, PyDO employs remote invocation as the communication mechanism whereby parameters to methods for remote objects are serialized from the caller node and deserialized at callee node. Since, method invocation is the fundamental message passing mechanism in object oriented programming, serialization then becomes a very important aspect of our system. Therefore, we test the method invocation with different serializers to achieve better efficiency.
 
-Fig 3. shows execution times for three serialization methods Pickle, Serpent and JSON. The execution times for each one of the methods are recorded for increasing numbers of method calls. Note that, for all the benchmarks same number of arguments and same object is used to avoid noise.
+Fig 2. shows execution times for three serialization methods Pickle, Serpent and JSON. The execution times for each one of the methods are recorded for increasing numbers of method calls. Note that, for all the benchmarks same number of arguments and same object is used to avoid noise.
 
 For very small number of method calls, all the serializers seem to show similar performance. As the number of method calls increase, pickle performs worse than both json and serpent. For our purposes, we use serpent as our serializer since it is similar to json when pythnon dictionaries are passed as arguments, but performs better for other types of arguments.
 
@@ -92,7 +114,7 @@ names(serpent_data) = c("calls", "time", "type")
 names(pickle_data) = c("calls", "time", "type")
 data = rbind(json_data, serpent_data, pickle_data)
 ggplot(data, aes(x=calls, y=time, colour=type)) +
- geom_point() + geom_line() + labs(colour="Serialization Type", x="Number of method calls", y="Time (seconds)", title="Fig 3. Evaluation of different serialization Methods") +
+ geom_point() + geom_line() + labs(colour="Serialization Type", x="Number of method calls", y="Time (seconds)", title="Fig 2. Evaluation of different serialization Methods") +
   scale_y_continuous(breaks = pretty(data$time, n = 10))
 ```
 
